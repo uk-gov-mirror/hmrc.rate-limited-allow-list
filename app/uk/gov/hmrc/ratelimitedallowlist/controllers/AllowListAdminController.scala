@@ -23,7 +23,7 @@ import uk.gov.hmrc.play.bootstrap.backend.controller.BackendController
 import uk.gov.hmrc.ratelimitedallowlist.models.UpdateRequest.{StartIssuingTokens, StopIssuingTokens, UpdateTokens}
 import uk.gov.hmrc.ratelimitedallowlist.models.domain.{Feature, Service}
 import uk.gov.hmrc.ratelimitedallowlist.models.*
-import uk.gov.hmrc.ratelimitedallowlist.repositories.UpdateResultResult.*
+import uk.gov.hmrc.ratelimitedallowlist.repositories.UpdateResult.*
 import uk.gov.hmrc.ratelimitedallowlist.repositories.{AllowListMetadataRepository, AllowListRepository}
 
 import javax.inject.{Inject, Singleton}
@@ -35,77 +35,65 @@ class AllowListAdminController @Inject()(
   auth: AuthActions,
   metadata: AllowListMetadataRepository,
   allowList: AllowListRepository
-)(using ExecutionContext) extends BackendController(cc), Logging {
+)(using ExecutionContext) extends BackendController(cc), Logging:
 
-  def getServices(): Action[AnyContent] =
-    auth.authenticated.retrieveLocations.admin().async {
+  def getServices: Action[AnyContent] =
+    auth.authenticated.admin.locations async:
       req =>
         val services = req.retrieval.map(_.resourceLocation.value)
         if services.nonEmpty then
           metadata.getServices(services.toList).map:
             services =>
               Ok(Json.toJson(services.map(_.value)))
-        else {
+        else
           logger.info("No services found. The user likely not added to the GitHub or not added to a team with services.")
           Future.successful(Ok(Json.toJson(JsArray.empty)))
-        }
-    }
 
   def getFeatures(service: Service): Action[AnyContent] =
-    auth.authorized.service(service).async {
-      metadata.get(service).map {
+    auth.authorized.service(service).async:
+      metadata.get(service).map:
         case list if list.isEmpty => NotFound
         case list                 => Ok(Json.toJson(list))
-      }
-    }
 
   def get(service: Service, feature: Feature): Action[AnyContent] =
-    auth.authorized.service(service).async {
-      metadata.get(service, feature).map {
+    auth.authorized.service(service).async:
+      metadata.get(service, feature).map:
         case Some(value) => Ok(Json.toJsObject(value))
         case None => NotFound
-      }
-    }
 
   def getAllowListReport(service: Service,
                          feature: Feature,
                          queryParams: AllowListReportQueryParams): Action[AnyContent] =
-    auth.authorized.service(service).async {
-      allowList.count(service, feature).map {
+    auth.authorized.service(service).async:
+      allowList.count(service, feature).map:
         count =>
           val response = AllowListReportResponse(service.value, feature.value, count, List.empty)
+          logger.info(s"getAllowListReport called with query parameters: $queryParams, but parameters are unused")
           Ok(Json.toJsObject(response))
-      }
-    }
 
   def patch(service: Service, feature: Feature): Action[UpdateRequest] =
-    auth.authorized.admin.service(service).async(parse.json[UpdateRequest]) {
-      request =>
-        (request.body match {
+    auth.authorized.admin.service(service).async(parse.json[UpdateRequest]):
+      request => (
+        request.body match
           case UpdateTokens(tokens) => metadata.setTokens(service, feature, tokens)
           case StartIssuingTokens => metadata.startIssuingTokens(service, feature)
           case StopIssuingTokens => metadata.stopIssuingTokens(service, feature)
-        }).map {
-          case UpdateSuccessful => NoContent
-          case NoOpUpdateResult => NotFound
-        }
-    }
+      ).map:
+        case UpdateSuccessful => NoContent
+        case NoOpUpdateResult => NotFound
+        case _ => InternalServerError
 
   def addTokens(service: Service, feature: Feature): Action[TokenIncrementRequest] =
-    auth.authorized.admin.service(service).async(parse.json[TokenIncrementRequest]) {
+    auth.authorized.admin.service(service).async(parse.json[TokenIncrementRequest]):
       request =>
-        metadata.addTokens(service, feature, request.body.tokens).map {
+        metadata.addTokens(service, feature, request.body.tokens).map:
           case UpdateSuccessful => NoContent
           case NoOpUpdateResult => NotFound
-        }
-    }
+          case _ => InternalServerError
 
   def create(service: Service): Action[CreateAllowListRequest] =
-    auth.authorized.admin.service(service).async(parse.json[CreateAllowListRequest]) {
-      request => {
-        metadata.create(service, request.body.allowList).map {
+    auth.authorized.admin.service(service).async(parse.json[CreateAllowListRequest]):
+      request =>
+        metadata.create(service, request.body.allowList).map:
           _ => Created
-        }
-      }
-    }
-}
+
