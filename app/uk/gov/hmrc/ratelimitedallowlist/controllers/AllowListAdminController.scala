@@ -16,13 +16,14 @@
 
 package uk.gov.hmrc.ratelimitedallowlist.controllers
 
-import play.api.Logging
 import play.api.libs.json.{JsArray, Json}
 import play.api.mvc.{Action, AnyContent, ControllerComponents}
+import play.api.Logging
 import uk.gov.hmrc.play.bootstrap.backend.controller.BackendController
+import uk.gov.hmrc.ratelimitedallowlist.models.*
 import uk.gov.hmrc.ratelimitedallowlist.models.UpdateRequest.{StartIssuingTokens, StopIssuingTokens, UpdateTokens}
 import uk.gov.hmrc.ratelimitedallowlist.models.domain.{Feature, Service}
-import uk.gov.hmrc.ratelimitedallowlist.models.*
+import uk.gov.hmrc.ratelimitedallowlist.models.request.ScopeLevel
 import uk.gov.hmrc.ratelimitedallowlist.repositories.UpdateResultResult.*
 import uk.gov.hmrc.ratelimitedallowlist.repositories.{AllowListMetadataRepository, AllowListRepository}
 
@@ -37,19 +38,37 @@ class AllowListAdminController @Inject()(
   allowList: AllowListRepository
 )(using ExecutionContext) extends BackendController(cc), Logging {
 
-  def getServices(): Action[AnyContent] =
-    auth.authenticated.retrieveLocations.admin().async {
-      req =>
-        val services = req.retrieval.map(_.resourceLocation.value)
-        if services.nonEmpty then
-          metadata.getServices(services.toList).map:
+  def getServices(mode: ScopeLevel): Action[AnyContent] = {
+    mode match {
+      case ScopeLevel.Admin =>
+        auth.authenticated.retrieveLocations.admin().async {
+          req =>
+            val services = req.retrieval.map(_.resourceLocation.value)
+            if (services.nonEmpty) {
+              metadata.getServices(services.toList).map {
+                services =>
+                  Ok(Json.toJson(services.map(_.value)))
+              }
+            } else {
+              logger.info(
+                "No services found. The user likely not added to the GitHub or not added to a team with services."
+              )
+              Future.successful(Ok(Json.toJson(JsArray.empty)))
+            }
+      }
+ 
+      case ScopeLevel.Read =>
+        auth.authenticated().async {
+          metadata.getServices(List.empty).map {
             services =>
+              logger.info(
+                "No services found. There are no active allow lists."
+              )
               Ok(Json.toJson(services.map(_.value)))
-        else {
-          logger.info("No services found. The user likely not added to the GitHub or not added to a team with services.")
-          Future.successful(Ok(Json.toJson(JsArray.empty)))
+          }
         }
     }
+  }
 
   def getFeatures(service: Service): Action[AnyContent] =
     auth.authorized.service(service).async {
