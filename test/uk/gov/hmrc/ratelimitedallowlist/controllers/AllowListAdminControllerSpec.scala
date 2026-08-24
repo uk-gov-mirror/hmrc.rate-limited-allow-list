@@ -58,7 +58,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
 
   "getServices" - {
     "mode is admin" - {
-      val fakeRequest = FakeRequest("GET", routes.AllowListAdminController.getServices(ScopeLevel.Read).url)
+      val fakeRequest = FakeRequest("GET", routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)).url)
         .withHeaders("Authorization" -> "Token foo")
       
       "return 200 with list of services when services are found" in {
@@ -71,7 +71,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           FakeAllowListMetadataRepository(getServicesResult = Some(List(serviceA, serviceB))),
           FakeAllowListRepository()
         )
-        val result = controller.getServices(ScopeLevel.Admin)(fakeRequest)
+        val result = controller.getServices(Some(ScopeLevel.Admin))(fakeRequest)
 
         status(result) mustBe Status.OK
         contentAsJson(result) mustBe Json.toJson(List(serviceA.value, serviceB.value))
@@ -88,7 +88,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           FakeAllowListRepository()
         )
 
-        val result = controller.getServices(ScopeLevel.Admin)(fakeRequest)
+        val result = controller.getServices(Some(ScopeLevel.Admin))(fakeRequest)
 
         status(result) mustBe Status.OK
         contentAsJson(result) mustBe JsArray.empty
@@ -104,16 +104,16 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           FakeAllowListRepository()
         )
 
-        val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(ScopeLevel.Admin))
+        val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Admin)))
 
-        controller.getServices(ScopeLevel.Admin)(fakeRequest).failed.futureValue match
+        controller.getServices(Some(ScopeLevel.Admin))(fakeRequest).failed.futureValue match
           case res: UpstreamErrorResponse => res.statusCode mustEqual 401
           case _ => fail("Expected but did not get UpstreamErrorResponse")
       }
     }
     
     "mode is read" - {
-      val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(ScopeLevel.Read))
+      val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)))
         .withHeaders("Authorization" -> "Token foo")
  
       "return 200 with list of services when services are found" in {
@@ -126,7 +126,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           FakeAllowListMetadataRepository(getServicesResult = Some(List(serviceA, serviceB))),
           FakeAllowListRepository()
         )
-        val asdf: Action[AnyContent] = controller.getServices(ScopeLevel.Read)
+        val asdf: Action[AnyContent] = controller.getServices(Some(ScopeLevel.Read))
         val result = asdf(fakeRequest)
 
         status(result) mustBe Status.OK
@@ -144,7 +144,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           FakeAllowListRepository()
         )
 
-        val result = controller.getServices(ScopeLevel.Read)(fakeRequest)
+        val result = controller.getServices(Some(ScopeLevel.Read))(fakeRequest)
 
         status(result) mustBe Status.OK
         contentAsJson(result) mustBe JsArray.empty
@@ -160,9 +160,9 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           FakeAllowListRepository()
         )
 
-        val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(ScopeLevel.Read))
+        val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)))
 
-        controller.getServices(ScopeLevel.Read)(fakeRequest).failed.futureValue match
+        controller.getServices(Some(ScopeLevel.Read))(fakeRequest).failed.futureValue match
           case res: UpstreamErrorResponse => res.statusCode mustEqual 401
           case _ => fail("Expected but did not get UpstreamErrorResponse")
       }

@@ -38,8 +38,8 @@ class AllowListAdminController @Inject()(
   allowList: AllowListRepository
 )(using ExecutionContext) extends BackendController(cc), Logging {
 
-  def getServices(mode: ScopeLevel): Action[AnyContent] = {
-    mode match {
+  def getServices(mode: Option[ScopeLevel] = None): Action[AnyContent] = {
+    mode.getOrElse(ScopeLevel.Read) match {
       case ScopeLevel.Admin =>
         auth.authenticated.retrieveLocations.admin().async {
           req =>
@@ -56,7 +56,6 @@ class AllowListAdminController @Inject()(
               Future.successful(Ok(Json.toJson(JsArray.empty)))
             }
       }
- 
       case ScopeLevel.Read =>
         auth.authenticated().async {
           metadata.getServices(List.empty).map {
