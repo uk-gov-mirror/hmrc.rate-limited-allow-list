@@ -38,8 +38,8 @@ class AllowListAdminController @Inject()(
   allowList: AllowListRepository
 )(using ExecutionContext) extends BackendController(cc), Logging {
 
-  def getServices(mode: Option[ScopeLevel] = None): Action[AnyContent] = {
-    mode.getOrElse(ScopeLevel.Read) match {
+  def getServices(permission: Option[ScopeLevel] = None): Action[AnyContent] = {
+    permission.getOrElse(ScopeLevel.Read) match {
       case ScopeLevel.Admin =>
         auth.authenticated.retrieveLocations.admin().async {
           req =>

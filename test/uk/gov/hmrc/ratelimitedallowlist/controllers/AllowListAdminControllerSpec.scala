@@ -57,7 +57,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
   )
 
   "getServices" - {
-    "mode is admin" - {
+    "permission is admin" - {
       val fakeRequest = FakeRequest("GET", routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)).url)
         .withHeaders("Authorization" -> "Token foo")
       
@@ -112,7 +112,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
       }
     }
     
-    "mode is read" - {
+    "permission is read" - {
       val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)))
         .withHeaders("Authorization" -> "Token foo")
  
