@@ -24,6 +24,7 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.http.Status
 import play.api.libs.json.{JsArray, Json}
+import play.api.mvc.{Action, AnyContent}
 import play.api.test.Helpers.*
 import play.api.test.{FakeRequest, Helpers}
 import uk.gov.hmrc.http.UpstreamErrorResponse
@@ -31,6 +32,7 @@ import uk.gov.hmrc.internalauth.client.Resource
 import uk.gov.hmrc.internalauth.client.test.{BackendAuthComponentsStub, StubBehaviour}
 import uk.gov.hmrc.ratelimitedallowlist.models.ReportFrequency.daily
 import uk.gov.hmrc.ratelimitedallowlist.models.domain.{AllowListMetadata, Feature, Service}
+import uk.gov.hmrc.ratelimitedallowlist.models.request.ScopeLevel
 import uk.gov.hmrc.ratelimitedallowlist.models.{AllowListReportQueryParams, AllowListReportResponse, CreateAllowListRequest, TokenIncrementRequest, UpdateRequest}
 import uk.gov.hmrc.ratelimitedallowlist.repositories.CreateResult.CreateSuccessful
 import uk.gov.hmrc.ratelimitedallowlist.repositories.{FakeAllowListMetadataRepository, FakeAllowListRepository}
@@ -43,74 +45,132 @@ import scala.concurrent.Future
 
 class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, ScalaFutures:
 
-  private val service = Service("service-a")
+  private val serviceA = Service("service-a")
   private val feature = Feature("list-1")
+  private val serviceB = Service("service-b")
   val instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
-  val data1 = AllowListMetadata(service.value, feature.value, 10, true, instant, instant)
+  val data1 = AllowListMetadata(serviceA.value, feature.value, 10, true, instant, instant)
   
   private val resources = Set(
-    Resource.from("rate-limited-allow-list-admin-frontend", service.value),
+    Resource.from("rate-limited-allow-list-admin-frontend", serviceA.value),
     Resource.from("rate-limited-allow-list-admin-frontend", "foo")
   )
 
   "getServices" - {
-    val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices())
-      .withHeaders("Authorization" -> "Token foo")
-    
-    "return 200 with list of services when services are found" in {
-      val mockStubBehaviour = mock[StubBehaviour]
-      when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(resources))
-
-      val controller = AllowListAdminController(
-        Helpers.stubControllerComponents(),
-        AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
-        FakeAllowListMetadataRepository(getServicesResult = Some(List(service))),
-        FakeAllowListRepository()
-      )
+    "permission is admin" - {
+      val fakeRequest = FakeRequest("GET", routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)).url)
+        .withHeaders("Authorization" -> "Token foo")
       
-      val result = controller.getServices()(fakeRequest)
+      "return 200 with list of services when services are found" in {
+        val mockStubBehaviour = mock[StubBehaviour]
+        when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(resources))
 
-      status(result) mustBe Status.OK
-      contentAsJson(result) mustBe Json.arr(Json.toJson(service.value))
+        val controller = AllowListAdminController(
+          Helpers.stubControllerComponents(),
+          AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
+          FakeAllowListMetadataRepository(getServicesResult = Some(List(serviceA, serviceB))),
+          FakeAllowListRepository()
+        )
+        val result = controller.getServices(Some(ScopeLevel.Admin))(fakeRequest)
+
+        status(result) mustBe Status.OK
+        contentAsJson(result) mustBe Json.toJson(List(serviceA.value, serviceB.value))
+      }
+
+      "return 200 with an empty list when there are no services found" in {
+        val mockStubBehaviour = mock[StubBehaviour]
+        when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(resources))
+
+        val controller = AllowListAdminController(
+          Helpers.stubControllerComponents(),
+          AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
+          FakeAllowListMetadataRepository(getServicesResult = Some(List.empty)),
+          FakeAllowListRepository()
+        )
+
+        val result = controller.getServices(Some(ScopeLevel.Admin))(fakeRequest)
+
+        status(result) mustBe Status.OK
+        contentAsJson(result) mustBe JsArray.empty
+      }
+
+      "returns 401 when there is no session for " in {
+        val mockStubBehaviour = mock[StubBehaviour]
+
+        val controller = AllowListAdminController(
+          Helpers.stubControllerComponents(),
+          AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
+          FakeAllowListMetadataRepository(),
+          FakeAllowListRepository()
+        )
+
+        val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Admin)))
+
+        controller.getServices(Some(ScopeLevel.Admin))(fakeRequest).failed.futureValue match
+          case res: UpstreamErrorResponse => res.statusCode mustEqual 401
+          case _ => fail("Expected but did not get UpstreamErrorResponse")
+      }
     }
+    
+    "permission is read" - {
+      val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)))
+        .withHeaders("Authorization" -> "Token foo")
+ 
+      "return 200 with list of services when services are found" in {
+        val mockStubBehaviour = mock[StubBehaviour]
+        when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(resources))
 
-    "return 200 with an empty list when there are no services found" in {
-      val mockStubBehaviour = mock[StubBehaviour]
-      when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(resources))
+        val controller = AllowListAdminController(
+          Helpers.stubControllerComponents(),
+          AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
+          FakeAllowListMetadataRepository(getServicesResult = Some(List(serviceA, serviceB))),
+          FakeAllowListRepository()
+        )
+        val asdf: Action[AnyContent] = controller.getServices(Some(ScopeLevel.Read))
+        val result = asdf(fakeRequest)
 
-      val controller = AllowListAdminController(
-        Helpers.stubControllerComponents(),
-        AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
-        FakeAllowListMetadataRepository(getServicesResult = Some(List.empty)),
-        FakeAllowListRepository()
-      )
+        status(result) mustBe Status.OK
+        contentAsJson(result) mustBe Json.toJson(List(serviceA.value, serviceB.value))
+      }
+ 
+      "return 200 with an empty list when there are no services found" in {
+        val mockStubBehaviour = mock[StubBehaviour]
+        when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(resources))
 
-      val result = controller.getServices()(fakeRequest)
+        val controller = AllowListAdminController(
+          Helpers.stubControllerComponents(),
+          AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
+          FakeAllowListMetadataRepository(getServicesResult = Some(List.empty)),
+          FakeAllowListRepository()
+        )
 
-      status(result) mustBe Status.OK
-      contentAsJson(result) mustBe JsArray.empty
-    }
+        val result = controller.getServices(Some(ScopeLevel.Read))(fakeRequest)
 
-    "returns 401 when there is no session" in {
-      val mockStubBehaviour = mock[StubBehaviour]
+        status(result) mustBe Status.OK
+        contentAsJson(result) mustBe JsArray.empty
+      }
 
-      val controller = AllowListAdminController(
-        Helpers.stubControllerComponents(),
-        AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
-        FakeAllowListMetadataRepository(),
-        FakeAllowListRepository()
-      )
+      "returns 401 when there is no session for " in {
+        val mockStubBehaviour = mock[StubBehaviour]
 
-      val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices())
+        val controller = AllowListAdminController(
+          Helpers.stubControllerComponents(),
+          AuthActions(BackendAuthComponentsStub(mockStubBehaviour)(Helpers.stubControllerComponents(), global)),
+          FakeAllowListMetadataRepository(),
+          FakeAllowListRepository()
+        )
 
-      controller.getServices()(fakeRequest).failed.futureValue match
-        case res: UpstreamErrorResponse => res.statusCode mustEqual 401
-        case _                          => fail("Expected but did not get UpstreamErrorResponse")
+        val fakeRequest = FakeRequest(routes.AllowListAdminController.getServices(Some(ScopeLevel.Read)))
+
+        controller.getServices(Some(ScopeLevel.Read))(fakeRequest).failed.futureValue match
+          case res: UpstreamErrorResponse => res.statusCode mustEqual 401
+          case _ => fail("Expected but did not get UpstreamErrorResponse")
+      }
     }
   }
 
   "getFeatures" - {
-    val fakeRequest = FakeRequest(routes.AllowListAdminController.getFeatures(service))
+    val fakeRequest = FakeRequest(routes.AllowListAdminController.getFeatures(serviceA))
       .withHeaders("Authorization" -> "Token foo")
 
     "return 200 when there is data for a service and feature" in {
@@ -124,7 +184,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository()
       )
 
-      val result = controller.getFeatures(service)(fakeRequest)
+      val result = controller.getFeatures(serviceA)(fakeRequest)
 
       status(result) mustBe Status.OK
       contentAsJson(result) mustBe Json.arr(Json.toJsObject(data1))
@@ -141,7 +201,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository()
       )
 
-      val result = controller.getFeatures(service)(fakeRequest)
+      val result = controller.getFeatures(serviceA)(fakeRequest)
 
       status(result) mustBe Status.NOT_FOUND
     }
@@ -155,16 +215,16 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository()
       )
 
-      val fakeRequest = FakeRequest(routes.AllowListAdminController.getFeatures(service))
+      val fakeRequest = FakeRequest(routes.AllowListAdminController.getFeatures(serviceA))
 
-      controller.getFeatures(service)(fakeRequest).failed.futureValue match
+      controller.getFeatures(serviceA)(fakeRequest).failed.futureValue match
         case res: UpstreamErrorResponse => res.statusCode mustEqual 401
         case _ => fail("Expected but did not get UpstreamErrorResponse")
     }
   }
 
   "get" - {
-    val url = routes.AllowListAdminController.get(service, feature)
+    val url = routes.AllowListAdminController.get(serviceA, feature)
 
     val fakeRequest = FakeRequest(url)
       .withHeaders("Authorization" -> "Token foo")
@@ -179,7 +239,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository()
       )
 
-      val result = controller.get(service, feature)(fakeRequest)
+      val result = controller.get(serviceA, feature)(fakeRequest)
 
       status(result) mustBe Status.OK
       contentAsJson(result) mustBe Json.toJsObject(data1)
@@ -195,7 +255,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository()
       )
 
-      val result = controller.get(service, feature)(fakeRequest)
+      val result = controller.get(serviceA, feature)(fakeRequest)
 
       status(result) mustBe Status.NOT_FOUND
     }
@@ -211,7 +271,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
 
       val fakeRequest = FakeRequest(url)
 
-      controller.get(service, feature)(fakeRequest).failed.futureValue match
+      controller.get(serviceA, feature)(fakeRequest).failed.futureValue match
         case res: UpstreamErrorResponse => res.statusCode mustEqual 401
         case _                          => fail("Expected but did not get UpstreamErrorResponse")
     }
@@ -219,11 +279,11 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
 
   "getFeatureReport" - {
     val queryParams = AllowListReportQueryParams(daily)
-    val url = routes.AllowListAdminController.getAllowListReport(service, feature, queryParams)
+    val url = routes.AllowListAdminController.getAllowListReport(serviceA, feature, queryParams)
     val fakeRequest = FakeRequest(url).withHeaders("Authorization" -> "Token foo")
 
     "return 200 when there is data for a service and feature" in {
-      val report = AllowListReportResponse(service.value, feature.value, 11, List.empty)
+      val report = AllowListReportResponse(serviceA.value, feature.value, 11, List.empty)
  
       val mockStubBehaviour = mock[StubBehaviour]
       when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(()))
@@ -234,14 +294,14 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository(countResult = Some(report.currentUserCount))
       )
 
-      val result = controller.getAllowListReport(service, feature, queryParams)(fakeRequest)
+      val result = controller.getAllowListReport(serviceA, feature, queryParams)(fakeRequest)
 
       status(result) mustBe Status.OK
       contentAsJson(result) mustBe Json.toJsObject(report)
     }
 
     "return 200 with empty response when there is no data for a service and feature" in {
-      val report = AllowListReportResponse(service.value, feature.value, 0, List.empty)
+      val report = AllowListReportResponse(serviceA.value, feature.value, 0, List.empty)
  
       val mockStubBehaviour = mock[StubBehaviour]
       when(mockStubBehaviour.stubAuth(any(), any())).thenReturn(Future.successful(()))
@@ -252,7 +312,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
         FakeAllowListRepository(countResult = Some(0))
       )
 
-      val result = controller.getAllowListReport(service, feature, queryParams)(fakeRequest)
+      val result = controller.getAllowListReport(serviceA, feature, queryParams)(fakeRequest)
 
       status(result) mustBe Status.OK
       contentAsJson(result) mustBe Json.toJsObject(report)
@@ -269,14 +329,14 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
 
       val fakeRequest = FakeRequest(url)
 
-      controller.getAllowListReport(service, feature, queryParams)(fakeRequest).failed.futureValue match
+      controller.getAllowListReport(serviceA, feature, queryParams)(fakeRequest).failed.futureValue match
         case res: UpstreamErrorResponse => res.statusCode mustEqual 401
         case _ => fail("Expected but did not get UpstreamErrorResponse")
     }
   }
  
   "patch" - {
-    val url = routes.AllowListAdminController.patch(service, feature)
+    val url = routes.AllowListAdminController.patch(serviceA, feature)
 
     "return 204" - {
       "when token value is updated" in {
@@ -293,7 +353,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
             .withBody(UpdateRequest.UpdateTokens(20))
             .withHeaders("Authorization" -> "Token foo")
 
-        val result = controller.patch(service, feature)(fakeRequest)
+        val result = controller.patch(serviceA, feature)(fakeRequest)
 
         status(result) mustBe Status.NO_CONTENT
       }
@@ -312,7 +372,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
             .withBody(UpdateRequest.StartIssuingTokens)
             .withHeaders("Authorization" -> "Token foo")
 
-        val result = controller.patch(service, feature)(fakeRequest)
+        val result = controller.patch(serviceA, feature)(fakeRequest)
 
         status(result) mustBe Status.NO_CONTENT
       }
@@ -331,7 +391,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
             .withBody(UpdateRequest.StopIssuingTokens)
             .withHeaders("Authorization" -> "Token foo")
 
-        val result = controller.patch(service, feature)(fakeRequest)
+        val result = controller.patch(serviceA, feature)(fakeRequest)
 
         status(result) mustBe Status.NO_CONTENT
       }
@@ -352,7 +412,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
             .withBody(UpdateRequest.UpdateTokens(20))
             .withHeaders("Authorization" -> "Token foo")
 
-        val result = controller.patch(service, feature)(fakeRequest)
+        val result = controller.patch(serviceA, feature)(fakeRequest)
 
         status(result) mustBe Status.NOT_FOUND
       }
@@ -371,7 +431,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
             .withBody(UpdateRequest.StartIssuingTokens)
             .withHeaders("Authorization" -> "Token foo")
 
-        val result = controller.patch(service, feature)(fakeRequest)
+        val result = controller.patch(serviceA, feature)(fakeRequest)
 
         status(result) mustBe Status.NOT_FOUND
       }
@@ -390,7 +450,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
             .withBody(UpdateRequest.StopIssuingTokens)
             .withHeaders("Authorization" -> "Token foo")
 
-        val result = controller.patch(service, feature)(fakeRequest)
+        val result = controller.patch(serviceA, feature)(fakeRequest)
 
         status(result) mustBe Status.NOT_FOUND
       }
@@ -408,14 +468,14 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
       val fakeRequest = FakeRequest(url)
         .withBody(UpdateRequest.StopIssuingTokens)
 
-      controller.patch(service, feature)(fakeRequest).failed.futureValue match
+      controller.patch(serviceA, feature)(fakeRequest).failed.futureValue match
         case res: UpstreamErrorResponse => res.statusCode mustEqual 401
         case _ => fail("Expected but did not get UpstreamErrorResponse")
     }
   }
 
   "addTokens" - {
-    val url = routes.AllowListAdminController.addTokens(service, feature)
+    val url = routes.AllowListAdminController.addTokens(serviceA, feature)
 
     "return 204 when tokens and canIssueTokens value is updated" in {
       val mockStubBehaviour = mock[StubBehaviour]
@@ -431,7 +491,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           .withBody(TokenIncrementRequest(10))
           .withHeaders("Authorization" -> "Token foo")
 
-      val result = controller.addTokens(service, feature)(fakeRequest)
+      val result = controller.addTokens(serviceA, feature)(fakeRequest)
 
       status(result) mustBe Status.NO_CONTENT
     }
@@ -450,7 +510,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           .withBody(TokenIncrementRequest(10))
           .withHeaders("Authorization" -> "Token foo")
 
-      val result = controller.addTokens(service, feature)(fakeRequest)
+      val result = controller.addTokens(serviceA, feature)(fakeRequest)
 
       status(result) mustBe Status.NOT_FOUND
     }
@@ -467,14 +527,14 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
       val fakeRequest = FakeRequest(url)
         .withBody(TokenIncrementRequest(10))
 
-      controller.addTokens(service, feature)(fakeRequest).failed.futureValue match
+      controller.addTokens(serviceA, feature)(fakeRequest).failed.futureValue match
         case res: UpstreamErrorResponse => res.statusCode mustEqual 401
         case _ => fail("Expected but did not get UpstreamErrorResponse")
     }
   }
 
   "create" - {
-    val url = routes.AllowListAdminController.create(service)
+    val url = routes.AllowListAdminController.create(serviceA)
 
     "return 201 when the service and feature do not exist" in {
       val mockStubBehaviour = mock[StubBehaviour]
@@ -490,7 +550,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
           .withBody(CreateAllowListRequest(Feature("allow-list-name")))
           .withHeaders("Authorization" -> "Token foo")
 
-      val result = controller.create(service)(fakeRequest)
+      val result = controller.create(serviceA)(fakeRequest)
 
       status(result) mustBe Status.CREATED
     }
@@ -506,7 +566,7 @@ class AllowListAdminControllerSpec extends AnyFreeSpec, Matchers, MockitoSugar, 
 
       val fakeRequest = FakeRequest(url).withBody(CreateAllowListRequest(Feature("allow-list-name")))
 
-      controller.create(service)(fakeRequest).failed.futureValue match
+      controller.create(serviceA)(fakeRequest).failed.futureValue match
         case res: UpstreamErrorResponse => res.statusCode mustEqual 401
         case _ => fail("Expected but did not get UpstreamErrorResponse")
     }
